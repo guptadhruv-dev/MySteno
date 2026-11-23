@@ -226,16 +226,6 @@ final class TranscriptionCoordinator {
 
     func bootstrap() async throws {
         refreshInstalledStates()
-        removeObsoleteModelRepositories()
-        if states[.accuracy]?.isInstalled == true {
-            do {
-                try removeObsoleteAccuracyAssets()
-            } catch {
-                Self.logger.error(
-                    "Removing obsolete Accuracy assets failed: \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
         if installedModels.isEmpty {
             try await install(.speed)
             return
@@ -278,7 +268,7 @@ final class TranscriptionCoordinator {
                     variant: Self.speedModelVariant
                 ) { [weak self] progress in
                     Task { @MainActor [weak self] in
-                        self?.states[.speed] = .downloading(progress.fractionCompleted)
+                        self?.updateDownloadProgress(.speed, progress.fractionCompleted)
                     }
                 }
                 states[model] = .installed
@@ -581,7 +571,7 @@ final class TranscriptionCoordinator {
             ) { [weak self] progress in
                 let fraction = download.start + progress.fractionCompleted * download.weight
                 Task { @MainActor [weak self] in
-                    self?.states[.accuracy] = .downloading(fraction)
+                    self?.updateDownloadProgress(.accuracy, fraction)
                 }
             }
         }
@@ -604,39 +594,11 @@ final class TranscriptionCoordinator {
             )
             try vocabulary.write(to: vocabularyURL, options: .atomic)
         }
-
-        try removeObsoleteAccuracyAssets()
     }
 
-    private func removeObsoleteModelRepositories() {
-        for repo in [Repo.parakeetV2, .parakeetCtc110m] {
-            let url = modelsBase.appendingPathComponent(repo.folderName, isDirectory: true)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            do {
-                try FileManager.default.removeItem(at: url)
-            } catch {
-                Self.logger.error(
-                    "Removing obsolete \(repo.folderName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
-    }
-
-    private func removeObsoleteAccuracyAssets() throws {
-        let obsoleteNames = [
-            "cohere_encoder.mlpackage",
-            "cohere_decoder_cache_external.mlmodelc",
-            "cohere_decoder_cache_external.mlpackage",
-            "cohere_decoder_cache_external_v2.mlpackage",
-            "cohere_decoder_cache_external_v2.mlmodelc",
-            "cohere_decoder_cache_external_v3.mlpackage",
-        ]
-        for name in obsoleteNames {
-            let url = accuracyDirectory.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
-        }
+    private func updateDownloadProgress(_ model: TranscriptionModel, _ fraction: Double) {
+        guard case .downloading = states[model] else { return }
+        states[model] = .downloading(fraction)
     }
 
     private func ensureAccuracyDiskSpace() throws {

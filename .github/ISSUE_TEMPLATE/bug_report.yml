@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in MySteno doesn't work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Press ⌃⌥T in TextEdit
+        2. Speak for about 10 seconds
+        3. Press ⌃⌥T again
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Speed
+        - Accuracy
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 27.1
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac model and memory
+      placeholder: MacBook Air M2, 16 GB
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MySteno version
+      description: Shown in Finder under Get Info for MySteno.app.
+      placeholder: "1.0"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run this in Terminal right after the problem happens, then paste the output. MySteno never logs what you said, but please look it over before posting.
+
+        `/usr/bin/log show --last 15m --info --style compact --predicate 'subsystem == "dev.guptadhruv.mysteno"'`
+      render: text

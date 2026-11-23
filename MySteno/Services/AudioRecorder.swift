@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 import os
 
@@ -313,6 +314,7 @@ final class AudioRecorder {
     private let maximumDuration: TimeInterval
     private let onElapsedTimeChange: (TimeInterval) -> Void
     private let captureStore: AudioCaptureStore
+    private let inputDeviceID: () -> AudioDeviceID?
 
     private let canonicalFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
@@ -323,12 +325,14 @@ final class AudioRecorder {
 
     init(
         maximumDuration: TimeInterval,
+        inputDeviceID: @escaping () -> AudioDeviceID?,
         onInterruption: @escaping () -> Void,
         onMaximumDuration: @escaping () -> Void,
         onElapsedTimeChange: @escaping (TimeInterval) -> Void
     ) {
         precondition(maximumDuration > 0)
         self.maximumDuration = maximumDuration
+        self.inputDeviceID = inputDeviceID
         self.onInterruption = onInterruption
         self.onMaximumDuration = onMaximumDuration
         self.onElapsedTimeChange = onElapsedTimeChange
@@ -393,6 +397,9 @@ final class AudioRecorder {
 
     private func installTapAndStartEngine() throws {
         let input = engine.inputNode
+        if let inputDeviceID = inputDeviceID() {
+            try selectInputDevice(inputDeviceID, for: input)
+        }
         let inputFormat = input.outputFormat(forBus: 0)
 
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
@@ -455,6 +462,29 @@ final class AudioRecorder {
 
         if let exception { throw exception }
         if let startError { throw startError }
+    }
+
+    private func selectInputDevice(_ deviceID: AudioDeviceID, for input: AVAudioInputNode) throws {
+        guard let audioUnit = input.audioUnit else {
+            throw NSError(domain: "AudioRecorder", code: -6, userInfo: [
+                NSLocalizedDescriptionKey: "The selected input device could not be configured."
+            ])
+        }
+
+        var deviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "The selected input device could not be used. Reconnect it or choose another microphone."
+            ])
+        }
     }
 
     private func startWallClockTimer(startedAt: Date) {

@@ -9,28 +9,7 @@ struct MyStenoApp: App {
             MenuView()
                 .environment(model)
         } label: {
-            HStack(spacing: 5) {
-                if let resizedIcon = getResizedMenuIcon() {
-                    Image(nsImage: resizedIcon)
-                } else {
-                    Image(systemName: "waveform")
-                }
-
-                if model.isRecording {
-                    Text(model.recordingTimerLabel)
-                        .font(.system(.caption, design: .monospaced).weight(.medium))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-            }
-            .foregroundStyle(model.isRecording ? .white : .primary)
-            .padding(.horizontal, model.isRecording ? 7 : 0)
-            .padding(.vertical, model.isRecording ? 3 : 0)
-            .background(
-                model.isRecording ? Color(nsColor: .darkGray) : .clear,
-                in: Capsule()
-            )
-            .animation(.easeInOut(duration: 0.2), value: model.isRecording)
+            MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.menu)
 
@@ -38,6 +17,44 @@ struct MyStenoApp: App {
             PreferencesView()
                 .environment(model)
         }
+
+        Window("Welcome to MySteno", id: SetupGuide.windowID) {
+            SetupGuideView()
+                .environment(model)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(SetupGuide.isCompleted ? .suppressed : .presented)
+        .restorationBehavior(.disabled)
+    }
+
+}
+
+private struct MenuBarLabel: View {
+    let model: MyStenoModel
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let resizedIcon = getResizedMenuIcon() {
+                Image(nsImage: resizedIcon)
+            } else {
+                Image(systemName: "waveform")
+            }
+
+            if model.isRecording {
+                Text(model.recordingTimerLabel)
+                    .font(.system(.caption, design: .monospaced).weight(.medium))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+        }
+        .foregroundStyle(model.isRecording ? .white : .primary)
+        .padding(.horizontal, model.isRecording ? 7 : 0)
+        .padding(.vertical, model.isRecording ? 3 : 0)
+        .background(
+            model.isRecording ? Color(nsColor: .darkGray) : .clear,
+            in: Capsule()
+        )
+        .animation(.easeInOut(duration: 0.2), value: model.isRecording)
     }
 
     private func getResizedMenuIcon() -> NSImage? {

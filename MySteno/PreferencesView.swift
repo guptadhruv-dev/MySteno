@@ -28,8 +28,26 @@ private struct GeneralPreferencesView: View {
             Section {
                 Toggle("Launch MySteno at login", isOn: Binding(
                     get: { model.launchAtLogin.isEnabled },
-                    set: { model.launchAtLogin.isEnabled = $0 }
+                    set: { model.launchAtLogin.setEnabled($0) }
                 ))
+
+                if model.launchAtLogin.needsApproval {
+                    HStack {
+                        Text("Allow MySteno in System Settings to finish turning this on.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("Open Login Items") {
+                            model.launchAtLogin.openLoginItemsSettings()
+                        }
+                    }
+                }
+
+                if let error = model.launchAtLogin.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
 
             Section("Imported audio output") {
@@ -54,15 +72,30 @@ private struct GeneralPreferencesView: View {
                 Text("Choose or create a folder such as Documents/MySteno Output. Imported audio is saved as a UTF-8 text file.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let error = model.outputFolder.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            model.launchAtLogin.refresh()
+        }
     }
 }
 
 private struct TranscriptionPreferencesView: View {
     @Environment(MyStenoModel.self) private var model
+    private static let physicalMemoryGigabytes = Int(
+        (Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824).rounded()
+    )
+    private static let recommendedAccuracyMemoryGigabytes = 16
+
     @State private var modelToDelete: TranscriptionModel?
+    @State private var showsAccuracyMemoryWarning = false
     @State private var durationDraftMinutes: Int?
     @FocusState private var durationFieldIsFocused: Bool
 
@@ -146,6 +179,25 @@ private struct TranscriptionPreferencesView: View {
         } message: {
             Text("The downloaded model files will be deleted from this Mac.")
         }
+        .alert(
+            "Install Accuracy on this Mac?",
+            isPresented: $showsAccuracyMemoryWarning
+        ) {
+            Button("Install Anyway") {
+                Task { await model.installModel(.accuracy) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Accuracy is only a small improvement over Speed. On clear speech they are about equally accurate; Accuracy mainly helps with background noise and heavy accents. It takes a second or more per dictation instead of a fraction of a second, downloads 2.2 GB, and may slow down other apps on a Mac with \(Self.physicalMemoryGigabytes) GB of memory. \(Self.recommendedAccuracyMemoryGigabytes) GB or more is recommended.")
+        }
+    }
+
+    private func requestInstall(_ option: TranscriptionModel) {
+        if option == .accuracy, Self.physicalMemoryGigabytes < Self.recommendedAccuracyMemoryGigabytes {
+            showsAccuracyMemoryWarning = true
+        } else {
+            Task { await model.installModel(option) }
+        }
     }
 
     private var durationBinding: Binding<Int> {
@@ -210,7 +262,7 @@ private struct TranscriptionPreferencesView: View {
                 .disabled(!model.transcription.canDelete(option, jobsAreRunning: model.jobsAreRunning))
             } else {
                 Button("Add") {
-                    Task { await model.installModel(option) }
+                    requestInstall(option)
                 }
                 .disabled(model.jobsAreRunning || state.isBusy)
             }

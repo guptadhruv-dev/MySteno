@@ -1,6 +1,7 @@
 import Accelerate
 import AppKit
 import AVFoundation
+import Darwin
 import FluidAudio
 import OSLog
 import SwiftUI
@@ -23,7 +24,7 @@ final class MyStenoModel {
     private(set) var isFileTranscribing = false
     private(set) var isCancellingFile = false
     private(set) var statusMessage = "Starting…"
-    private(set) var lastTranscript = ""
+    private(set) var transcriptHistory: [String] = []
     private(set) var lastFileOutputURL: URL?
     private(set) var lastError: String?
     private(set) var recordingElapsed: TimeInterval = 0
@@ -33,6 +34,7 @@ final class MyStenoModel {
     let hotkey = HotkeyService()
     let transcription = TranscriptionCoordinator()
     let outputFolder = OutputFolderStore()
+    let audioInputDevices = AudioInputDeviceStore()
 
     @ObservationIgnored private lazy var recorder = makeRecorder()
     private var vad: VadManager?
@@ -43,6 +45,9 @@ final class MyStenoModel {
     private var voiceTask: Task<Void, Never>?
     private var fileTask: Task<Void, Never>?
     private let notifications = NotificationService()
+    private let maximumTranscriptHistory = 10
+    private let transcriptHistoryLabelWordLimit = 6
+    private let transcriptHistoryLabelCharacterLimit = 40
 
     init() {
         activate()
@@ -73,8 +78,40 @@ final class MyStenoModel {
         transcription.clearProcessingWarnings()
     }
 
+    var selectedAudioInputDevice: AudioInputDevice? {
+        audioInputDevices.selectedDevice
+    }
+
+    func refreshAudioInputDevices() {
+        audioInputDevices.refresh()
+    }
+
+    func selectAudioInputDevice(_ device: AudioInputDevice?) {
+        guard !jobsAreRunning else { return }
+        audioInputDevices.select(device)
+        resetRecorder()
+    }
+
+    func copyTranscript(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func transcriptHistoryLabel(for text: String) -> String {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        var label = words.prefix(transcriptHistoryLabelWordLimit).joined(separator: " ")
+        var isTruncated = words.count > transcriptHistoryLabelWordLimit
+        if label.count > transcriptHistoryLabelCharacterLimit {
+            label = String(label.prefix(transcriptHistoryLabelCharacterLimit))
+            isTruncated = true
+        }
+        guard isTruncated else { return label }
+        let trimmed = label.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))
+        return "\(trimmed)…"
+    }
+
     private func activate() {
-        hotkey.start(model: self)
+        hotkey.start(model: self, promptsForAccessibility: SetupGuide.isCompleted)
         statusMessage = "Loading models…"
         Task {
             do {
@@ -169,7 +206,10 @@ final class MyStenoModel {
         }
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if outputFolder.folderURL == nil, !outputFolder.chooseFolder() { return }
+        if outputFolder.folderURL == nil, !outputFolder.chooseFolder() {
+            if let error = outputFolder.errorMessage { recordError(error) }
+            return
+        }
         beginFileTranscription(url)
     }
 
@@ -199,8 +239,12 @@ final class MyStenoModel {
     }
 
     private func makeRecorder() -> AudioRecorder {
-        AudioRecorder(
+        let inputDevices = audioInputDevices
+        return AudioRecorder(
             maximumDuration: audioDuration.maximumDuration,
+            inputDeviceID: { [weak inputDevices] in
+                inputDevices?.selectedDeviceID
+            },
             onInterruption: { [weak self] in
                 guard let self else { return }
                 let wasActive = isRecording || isStartingRecording
@@ -221,7 +265,10 @@ final class MyStenoModel {
             },
             onElapsedTimeChange: { [weak self] elapsed in
                 guard let self, isRecording || isStartingRecording else { return }
-                recordingElapsed = elapsed
+                let wholeSeconds = elapsed.rounded(.down)
+                if wholeSeconds != recordingElapsed {
+                    recordingElapsed = wholeSeconds
+                }
             }
         )
     }
@@ -240,7 +287,7 @@ final class MyStenoModel {
         ) { [weak self] _ in
             guard let self else { return }
             if isRecording {
-                stopRecording(delivery: .clipboardOnly)
+                stopRecording(pasteToActiveField: false)
             } else if isStartingRecording {
                 startAttemptID = UUID()
                 isStartingRecording = false
@@ -268,6 +315,11 @@ final class MyStenoModel {
 
     private func startRecording() {
         guard !isStartingRecording, !isRecording, !isVoiceTranscribing, !isFileTranscribing else { return }
+        guard !audioInputDevices.selectedDeviceUnavailable else {
+            statusMessage = "Selected microphone unavailable"
+            recordError("The selected microphone is unavailable. Reconnect it or choose another microphone.")
+            return
+        }
         currentVoiceJobID = UUID()
 
         let attemptID = UUID()
@@ -333,7 +385,7 @@ final class MyStenoModel {
 
     private func stopRecording(
         reachedLimit: Bool = false,
-        delivery: VoiceTranscriptDelivery = .pasteToActiveField
+        pasteToActiveField: Bool = true
     ) {
         startAttemptID = UUID()
         let audio: CapturedAudio
@@ -366,14 +418,18 @@ final class MyStenoModel {
         let jobID = UUID()
         currentVoiceJobID = jobID
         voiceTask = Task { [weak self] in
-            await self?.transcribeVoice(samples: audio.samples, jobID: jobID, delivery: delivery)
+            await self?.transcribeVoice(
+                samples: audio.samples,
+                jobID: jobID,
+                shouldPasteToActiveField: pasteToActiveField
+            )
         }
     }
 
     private func transcribeVoice(
         samples rawSamples: [Float],
         jobID: UUID,
-        delivery: VoiceTranscriptDelivery
+        shouldPasteToActiveField: Bool
     ) async {
         let requestStart = ContinuousClock.now
         defer {
@@ -399,16 +455,14 @@ final class MyStenoModel {
             )
             try Task.checkCancellation()
             guard currentVoiceJobID == jobID, !isRecording, !isFileTranscribing else { return }
-            lastTranscript = text
+            addTranscriptToHistory(text)
             setReadyStatus()
-            switch delivery {
-            case .pasteToActiveField:
-                await pasteToActiveField(text)
-            case .clipboardOnly:
-                copyToPasteboard(text)
+            if shouldPasteToActiveField {
+                pasteToActiveField(text)
+            } else {
                 await notifications.send(
                     title: "Dictation transcribed",
-                    body: "Recording stopped before sleep. The transcript is on the clipboard."
+                    body: "Recording stopped before sleep. Open the MySteno menu to copy the transcript."
                 )
             }
         } catch is CancellationError {
@@ -525,41 +579,112 @@ final class MyStenoModel {
         let baseName = sourceURL.deletingPathExtension().lastPathComponent
         var outputURL = access.url.appendingPathComponent(baseName).appendingPathExtension("txt")
         var suffix = 2
-        while FileManager.default.fileExists(atPath: outputURL.path) {
+        guard let data = "\(text.trimmingCharacters(in: .whitespacesAndNewlines))\n".data(using: .utf8) else {
+            throw FileTranscriptionError.encodingFailed
+        }
+        let temporaryURL = access.url.appendingPathComponent(".\(UUID().uuidString).tmp")
+        try data.write(to: temporaryURL)
+        defer {
+            if FileManager.default.fileExists(atPath: temporaryURL.path) {
+                do {
+                    try FileManager.default.removeItem(at: temporaryURL)
+                } catch {
+                    Self.logger.error("Could not remove temporary transcript output: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+        while true {
+            let status = renamex_np(temporaryURL.path, outputURL.path, UInt32(RENAME_EXCL))
+            if status == 0 { return outputURL }
+            let errorNumber = errno
+            if errorNumber == ENOTSUP {
+                do {
+                    try data.write(to: outputURL, options: .withoutOverwriting)
+                    return outputURL
+                } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                    outputURL = access.url
+                        .appendingPathComponent("\(baseName)-\(suffix)")
+                        .appendingPathExtension("txt")
+                    suffix += 1
+                    continue
+                }
+            }
+            guard errorNumber == EEXIST else {
+                throw POSIXError(POSIXErrorCode(rawValue: errorNumber) ?? .EIO)
+            }
             outputURL = access.url
                 .appendingPathComponent("\(baseName)-\(suffix)")
                 .appendingPathExtension("txt")
             suffix += 1
         }
+    }
 
-        guard let data = "\(text.trimmingCharacters(in: .whitespacesAndNewlines))\n".data(using: .utf8) else {
-            throw FileTranscriptionError.encodingFailed
+    private func addTranscriptToHistory(_ text: String) {
+        transcriptHistory.insert(text, at: 0)
+        if transcriptHistory.count > maximumTranscriptHistory {
+            transcriptHistory.removeLast(transcriptHistory.count - maximumTranscriptHistory)
         }
-        try data.write(to: outputURL, options: .atomic)
-        return outputURL
     }
 
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+    private func pasteToActiveField(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        let existingItems = pasteboardItems(from: pasteboard.pasteboardItems ?? [])
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            let restored = restorePasteboard(existingItems, to: pasteboard)
+            recordError(
+                restored
+                    ? "Could not place the transcript on the clipboard for pasting."
+                    : "Could not place the transcript on the clipboard or restore the previous clipboard contents."
+            )
+            return
+        }
+        let transcriptChangeCount = pasteboard.changeCount
+
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        else {
+            let restored = restorePasteboard(existingItems, to: pasteboard)
+            recordError(
+                restored
+                    ? "Could not create the keyboard event needed to paste the transcript."
+                    : "Could not create the keyboard event or restore the previous clipboard contents."
+            )
+            return
+        }
+        keyDown.flags = .maskCommand
+        keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        keyUp.flags = .maskCommand
+        keyUp.post(tap: .cgAnnotatedSessionEventTap)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak self] in
+            guard pasteboard.changeCount == transcriptChangeCount else { return }
+            guard let self else { return }
+            if !self.restorePasteboard(existingItems, to: pasteboard) {
+                self.recordError("Could not restore the clipboard after pasting the transcript.")
+            }
+        }
     }
 
-    private func pasteToActiveField(_ text: String) async {
-        copyToPasteboard(text)
-
-        let source = CGEventSource(stateID: .hidSystemState)
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-        keyDown?.flags = .maskCommand
-        keyDown?.post(tap: .cgAnnotatedSessionEventTap)
-
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        keyUp?.flags = .maskCommand
-        keyUp?.post(tap: .cgAnnotatedSessionEventTap)
+    private func pasteboardItems(from items: [NSPasteboardItem]) -> [NSPasteboardItem] {
+        items.compactMap { original in
+            let copy = NSPasteboardItem()
+            for type in original.types {
+                if let data = original.data(forType: type) {
+                    copy.setData(data, forType: type)
+                }
+            }
+            return copy.types.isEmpty ? nil : copy
+        }
     }
 
-    private enum VoiceTranscriptDelivery {
-        case pasteToActiveField
-        case clipboardOnly
+    private func restorePasteboard(
+        _ items: [NSPasteboardItem],
+        to pasteboard: NSPasteboard
+    ) -> Bool {
+        pasteboard.clearContents()
+        return items.isEmpty || pasteboard.writeObjects(items)
     }
 
     private func setReadyStatus() {

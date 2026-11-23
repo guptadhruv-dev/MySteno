@@ -81,9 +81,11 @@ final class HotkeyService {
     private var runLoop: CFRunLoop?
     private weak var model: MyStenoModel?
 
-    func start(model: MyStenoModel) {
+    func start(model: MyStenoModel, promptsForAccessibility: Bool) {
         self.model = model
-        requestAccessibilityIfNeeded()
+        if promptsForAccessibility {
+            requestAccessibility()
+        }
         installTap()
     }
 
@@ -139,7 +141,7 @@ final class HotkeyService {
         self.isMuted = isMuted
     }
 
-    private func requestAccessibilityIfNeeded() {
+    func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }

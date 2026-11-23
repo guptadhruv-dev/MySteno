@@ -22,7 +22,7 @@ Speed is the right choice for almost everyone. Accuracy runs Cohere Transcribe, 
 
 ## Benchmarks
 
-Measured on an Apple M5 Pro  macOS 27) with [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.18.4 on LibriSpeech.
+Measured on an Apple M5 Pro (macOS 27) with [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.18.4 on LibriSpeech.
 
 | Engine | Test set | Word error rate | Throughput |
 | --- | --- | ---: | ---: |
@@ -30,11 +30,11 @@ Measured on an Apple M5 Pro  macOS 27) with [FluidAudio](https://github.com/Flui
 | Speed - Parakeet Unified (int8, batch) | test-other (noisy), all 2,939 files | **3.18%** | 140× |
 | Accuracy - Cohere Transcribe (q8) | test-clean, 300 files | **2.18%** mean per file | 6.1× |
 
-On clean audio (`test-clean`), both models perform nearly identically per file (2.16% vs. 2.18% mean per-file WER), while Cohere's larger encoder-decoder architecture provides stronger resilience on noisy or heavily accented speech. In FluidAudio's own same-harness comparison, Parakeet Unified also makes about **17% fewer errors** than Parakeet TDT v3, FluidAudio's default Parakeet model (2.16% vs. 2.6% mean per-file WER on `test-clean`), and writes punctuation and capitalization natively without a separate clean-up pass.
+On clean audio (`test-clean`), both models perform nearly identically per file (2.20% vs. 2.18% mean per-file WER), while Cohere's larger encoder-decoder architecture provides stronger resilience on noisy or heavily accented speech. In FluidAudio's own same-harness comparison, Parakeet Unified also makes about **17% fewer errors** than Parakeet TDT v3, FluidAudio's default Parakeet model (2.16% vs. 2.6% mean per-file WER on `test-clean`), and writes punctuation and capitalization natively without a separate clean-up pass.
 
 ## Requirements
 
-- Apple silicon Mac running macOS 27.0 or later
+- Apple silicon Mac running macOS 26.0 or later
 - 16 GB of memory or more recommended for Accuracy mode
 - About 600 MB of disk for Speed, plus about 2.2 GB for Accuracy
 
@@ -43,9 +43,8 @@ On clean audio (`test-clean`), both models perform nearly identically per file (
 Download the latest build from [Releases](../../releases) (available soon), or [build from source](#build-from-source).
 
 1. Unzip `MySteno.zip` and move `MySteno.app` to `/Applications`.
-2. Open it. MySteno appears in the menu bar, not the Dock, and downloads the Speed model on first launch.
-3. Allow microphone access when asked.
-4. Turn on MySteno in **System Settings → Privacy & Security → Accessibility**, then choose **Retry** from the MySteno menu. This lets the shortcut work in every app and lets MySteno paste for you.
+2. Open it. A welcome window walks you through setup while the Speed model downloads: allow the microphone, then turn on MySteno under **Accessibility** so the shortcut works in every app and MySteno can paste for you. Each step ticks off by itself, and you can try a dictation right there.
+3. MySteno then lives in the menu bar, not the Dock. To see the welcome window again, choose **Setup Guide…** from the MySteno menu.
 
 If macOS says the app can't be opened because the developer can't be verified, open **System Settings → Privacy & Security** and click **Open Anyway**.
 
@@ -57,7 +56,11 @@ If macOS says the app can't be opened because the developer can't be verified, o
 2. Press `⌃⌥T` (Control-Option-T) and speak.
 3. Press `⌃⌥T` again. Your text is pasted where you were typing.
 
-The menu bar icon turns into a timer while you record. The last transcript can be copied again from the menu. If your Mac goes to sleep while you're recording, MySteno still transcribes what you said and puts it on the clipboard.
+The menu bar icon turns into a timer while you record. Your last 10 dictations are under **Transcript History** in the menu; click one to copy it. If your Mac goes to sleep while you're recording, MySteno still transcribes what you said and adds it to Transcript History.
+
+**Choose a microphone**
+
+Pick one under **Microphone** in the MySteno menu. **System Default** follows the input selected in System Settings.
 
 **Transcribe a file**
 
@@ -73,7 +76,36 @@ Choose **Choose Audio File…** from the menu. The first time, pick a folder for
 
 - Audio is captured and processed in memory. Dictation never writes audio to disk.
 - The network is used only to download model files from Hugging Face.
-- Transcripts go only to the app you're typing in, the clipboard, or the folder you choose. Notifications never contain transcript text.
+- Transcripts go only to the app you're typing in or the folder you choose. Pasting briefly uses the clipboard, then puts back what you had copied.
+- Transcript History stays in memory and is cleared when MySteno quits. Notifications never contain transcript text.
 
----
-Released under the [MIT License](LICENSE).
+## Troubleshooting
+
+- **The shortcut does nothing or nothing is pasted.** Choose **Setup Guide…** from the MySteno menu and check that Accessibility is ticked. If MySteno is turned on in System Settings but still doesn't work (this can happen after replacing the app), run `tccutil reset Accessibility dev.guptadhruv.mysteno`, reopen MySteno, and allow it again.
+- **Nothing is transcribed, or the wrong microphone is used.** Check **System Settings → Privacy & Security → Microphone**, and the **Microphone** choice in the MySteno menu.
+- **Reporting a bug.** Include the logs from right after the problem:
+
+  ```sh
+  /usr/bin/log show --last 15m --info --style compact --predicate 'subsystem == "dev.guptadhruv.mysteno"'
+  ```
+
+## Uninstall
+
+1. Turn off **Launch MySteno at login** in Preferences, then quit MySteno.
+2. Delete `MySteno.app`.
+3. Delete `~/Library/Containers/dev.guptadhruv.mysteno` (in Finder, **Go → Go to Folder…**). This removes the downloaded models (about 600 MB for Speed, plus about 2.2 GB for Accuracy) and MySteno's settings.
+4. Optionally, remove MySteno from **Microphone** and **Accessibility** in **System Settings → Privacy & Security**.
+
+## Build from source
+
+Requires Xcode 27 or later on an Apple silicon Mac.
+
+1. Clone this repository and open `MySteno.xcodeproj`.
+2. Under **Signing & Capabilities**, choose your own team. If Xcode says the bundle identifier isn't available, change it to one of your own, such as `com.yourname.mysteno`.
+3. Choose **Product → Run**.
+
+Swift Package Manager fetches the one dependency, [FluidAudio](https://github.com/FluidInference/FluidAudio), automatically.
+
+## License
+
+MySteno's code is released under the [MIT License](LICENSE). The speech models are not part of this repository and keep their own licenses: NVIDIA Parakeet Unified EN 0.6B is under the [NVIDIA Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/), and Cohere Transcribe 03-2026 is under Apache 2.0. MySteno downloads Core ML conversions of both published by FluidInference on Hugging Face.

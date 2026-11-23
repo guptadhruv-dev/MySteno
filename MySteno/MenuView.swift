@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuView: View {
     @Environment(MyStenoModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         if !model.hotkey.accessibilityGranted {
@@ -32,6 +33,31 @@ struct MenuView: View {
         }
         .disabled(model.jobsAreRunning || model.transcription.installedModels.count < 2)
 
+        Picker("Microphone", selection: Binding(
+            get: { model.selectedAudioInputDevice },
+            set: { selected in
+                model.selectAudioInputDevice(selected)
+            }
+        )) {
+            Text("System Default").tag(nil as AudioInputDevice?)
+            ForEach(model.audioInputDevices.devices) { device in
+                Text(device.name).tag(Optional(device))
+            }
+        }
+        .disabled(model.jobsAreRunning)
+
+        if let error = model.audioInputDevices.errorMessage {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+
+        if model.audioInputDevices.selectedDeviceUnavailable {
+            Label("Selected microphone unavailable", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+
         Divider()
 
         Button(model.isRecording ? "Stop Recording" : "Start Recording") {
@@ -57,14 +83,17 @@ struct MenuView: View {
             .disabled(model.isCancellingFile)
         }
 
-        if !model.lastTranscript.isEmpty || model.lastFileOutputURL != nil {
+        if !model.transcriptHistory.isEmpty || model.lastFileOutputURL != nil {
             Divider()
         }
 
-        if !model.lastTranscript.isEmpty {
-            Button("Copy Last Transcript") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(model.lastTranscript, forType: .string)
+        if !model.transcriptHistory.isEmpty {
+            Menu("Transcript History") {
+                ForEach(Array(model.transcriptHistory.enumerated()), id: \.offset) { _, transcript in
+                    Button(model.transcriptHistoryLabel(for: transcript)) {
+                        model.copyTranscript(transcript)
+                    }
+                }
             }
         }
 
@@ -75,6 +104,11 @@ struct MenuView: View {
         }
 
         Divider()
+
+        Button("Setup Guide…") {
+            openWindow(id: SetupGuide.windowID)
+            NSApp.activate()
+        }
 
         SettingsLink {
             Text("Preferences")
@@ -118,7 +152,7 @@ struct MenuView: View {
 
     private var accessibilityWarning: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Accessibility needed", systemImage: "exclamationmark.triangle.fill")
+            Label("Accessibility needed for the shortcut and paste", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.callout.weight(.medium))
 

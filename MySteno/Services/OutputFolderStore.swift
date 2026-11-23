@@ -1,9 +1,13 @@
 import AppKit
 import Foundation
+import OSLog
 
 @Observable
 final class OutputFolderStore {
+    private static let logger = Logger(subsystem: "dev.guptadhruv.mysteno", category: "OutputFolder")
+
     private(set) var folderURL: URL?
+    private(set) var errorMessage: String?
 
     private let bookmarkKey = "outputFolderBookmark"
 
@@ -36,6 +40,8 @@ final class OutputFolderStore {
             try saveBookmark(for: url)
             return true
         } catch {
+            errorMessage = "Could not keep access to “\(url.lastPathComponent)”: \(error.localizedDescription)"
+            Self.logger.error("Saving output folder bookmark failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -58,19 +64,27 @@ final class OutputFolderStore {
 
     private func restoreBookmark() {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return }
+        let url: URL
+        var stale = false
         do {
-            var stale = false
-            let url = try URL(
+            url = try URL(
                 resolvingBookmarkData: data,
                 options: [.withSecurityScope],
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             )
-            folderURL = url
-            if stale { try saveBookmark(for: url) }
         } catch {
             UserDefaults.standard.removeObject(forKey: bookmarkKey)
-            folderURL = nil
+            errorMessage = "The saved output folder is no longer available. Choose it again."
+            Self.logger.error("Resolving output folder bookmark failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        folderURL = url
+        guard stale else { return }
+        do {
+            try saveBookmark(for: url)
+        } catch {
+            Self.logger.error("Refreshing stale output folder bookmark failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -82,6 +96,7 @@ final class OutputFolderStore {
         )
         UserDefaults.standard.set(data, forKey: bookmarkKey)
         folderURL = url
+        errorMessage = nil
     }
 }
 
