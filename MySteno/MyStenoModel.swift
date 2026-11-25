@@ -17,6 +17,7 @@ final class MyStenoModel {
         subsystem: "dev.guptadhruv.mysteno",
         category: "AudioPerformance"
     )
+    private static let insertsParagraphBreaksKey = "insertsParagraphBreaks"
 
     private(set) var isRecording = false
     private(set) var isStartingRecording = false
@@ -27,7 +28,9 @@ final class MyStenoModel {
     private(set) var transcriptHistory: [String] = []
     private(set) var lastFileOutputURL: URL?
     private(set) var lastError: String?
+    private(set) var inputNotice: String?
     private(set) var recordingElapsed: TimeInterval = 0
+    private(set) var insertsParagraphBreaks = UserDefaults.standard.bool(forKey: insertsParagraphBreaksKey)
 
     let audioDuration = AudioDurationSettings()
     let launchAtLogin = LaunchAtLogin()
@@ -78,6 +81,10 @@ final class MyStenoModel {
         transcription.clearProcessingWarnings()
     }
 
+    func clearInputNotice() {
+        inputNotice = nil
+    }
+
     var selectedAudioInputDevice: AudioInputDevice? {
         audioInputDevices.selectedDevice
     }
@@ -90,6 +97,10 @@ final class MyStenoModel {
         guard !jobsAreRunning else { return }
         audioInputDevices.select(device)
         resetRecorder()
+    }
+
+    func clearTranscriptHistory() {
+        transcriptHistory.removeAll()
     }
 
     func copyTranscript(_ text: String) {
@@ -142,6 +153,11 @@ final class MyStenoModel {
     func updateDefaultModel(_ model: TranscriptionModel) {
         guard !jobsAreRunning else { return }
         transcription.setDefaultModel(model)
+    }
+
+    func updateInsertsParagraphBreaks(_ enabled: Bool) {
+        insertsParagraphBreaks = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.insertsParagraphBreaksKey)
     }
 
     func updateMaximumAudioDurationMinutes(_ minutes: Int) {
@@ -245,7 +261,7 @@ final class MyStenoModel {
             inputDeviceID: { [weak inputDevices] in
                 inputDevices?.selectedDeviceID
             },
-            onInterruption: { [weak self] in
+            onInterruption: { [weak self] message in
                 guard let self else { return }
                 let wasActive = isRecording || isStartingRecording
                 startAttemptID = UUID()
@@ -256,8 +272,11 @@ final class MyStenoModel {
                 resetRecorder()
                 hotkey.refresh()
                 if wasActive {
-                    recordError("Audio input was lost and could not be recovered. Reconnect the device and press the shortcut again.")
+                    recordError(message)
                 }
+            },
+            onInputFallback: { [weak self] message in
+                self?.inputNotice = message
             },
             onMaximumDuration: { [weak self] in
                 guard let self, isRecording else { return }
@@ -315,6 +334,7 @@ final class MyStenoModel {
 
     private func startRecording() {
         guard !isStartingRecording, !isRecording, !isVoiceTranscribing, !isFileTranscribing else { return }
+        inputNotice = nil
         guard !audioInputDevices.selectedDeviceUnavailable else {
             statusMessage = "Selected microphone unavailable"
             recordError("The selected microphone is unavailable. Reconnect it or choose another microphone.")
@@ -557,12 +577,17 @@ final class MyStenoModel {
         let vadElapsed = vadStart.duration(to: .now)
 
         let assemblyStart = ContinuousClock.now
+        let insertsParagraphBreaks = insertsParagraphBreaks
         let prepared = try await Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             let speechRanges = segments.map {
                 SpeechTimeRange(startTime: $0.startTime, endTime: $0.endTime)
             }
-            return SpeechPreparation.prepared(samples: samples, segments: speechRanges)
+            return SpeechPreparation.prepared(
+                samples: samples,
+                segments: speechRanges,
+                insertsParagraphBreaks: insertsParagraphBreaks
+            )
         }.value
         Self.performanceLogger.info(
             "Audio preparation vad=\(vadElapsed, privacy: .public) assembly=\(assemblyStart.duration(to: .now), privacy: .public) inputSamples=\(samples.count, privacy: .public) retainedSamples=\(prepared.retainedSampleCount, privacy: .public) segments=\(segments.count, privacy: .public) paragraphs=\(prepared.paragraphRanges.count, privacy: .public)"

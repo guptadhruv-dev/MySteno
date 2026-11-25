@@ -36,13 +36,17 @@ enum SpeechPreparation {
 
     nonisolated static func prepared(
         samples: [Float],
-        segments: [SpeechTimeRange]
+        segments: [SpeechTimeRange],
+        insertsParagraphBreaks: Bool
     ) -> PreparedSpeech {
         var assembled = paragraphs(
             segments: segments,
             sampleCount: samples.count,
             sampleRate: AudioFormatConfiguration.sampleRate
         )
+        if !insertsParagraphBreaks, !assembled.isEmpty {
+            assembled = [samples.indices]
+        }
         if assembled.isEmpty, hasMeaningfulSignal(samples) {
             assembled = [samples.indices]
         }

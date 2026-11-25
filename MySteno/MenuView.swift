@@ -14,7 +14,15 @@ struct MenuView: View {
             Divider()
         }
         if let warning = model.transcription.transcriptionWarning {
-            warningBanner(warning)
+            warningBanner(title: "Processing Warning", message: warning) {
+                model.clearProcessingWarnings()
+            }
+            Divider()
+        }
+        if let notice = model.inputNotice {
+            warningBanner(title: "Microphone Switched", message: notice) {
+                model.clearInputNotice()
+            }
             Divider()
         }
 
@@ -94,6 +102,12 @@ struct MenuView: View {
                         model.copyTranscript(transcript)
                     }
                 }
+
+                Divider()
+
+                Button("Clear History") {
+                    model.clearTranscriptHistory()
+                }
             }
         }
 
@@ -136,15 +150,19 @@ struct MenuView: View {
         .padding(.vertical, 4)
     }
 
-    private func warningBanner(_ message: String) -> some View {
+    private func warningBanner(
+        title: String,
+        message: String,
+        clear: @escaping () -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Processing Warning", systemImage: "exclamationmark.triangle.fill")
+            Label(title, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.callout.weight(.medium))
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Button("Clear") { model.clearProcessingWarnings() }
+            Button("Clear", action: clear)
                 .font(.caption)
         }
         .padding(.vertical, 4)

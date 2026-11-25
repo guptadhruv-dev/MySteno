@@ -36,7 +36,7 @@ On clean audio (`test-clean`), both models perform nearly identically per file (
 
 - Apple silicon Mac running macOS 26.0 or later
 - 16 GB of memory or more recommended for Accuracy mode
-- About 600 MB of disk for Speed, plus about 2.2 GB for Accuracy
+- About 600 MB of disk for Speed, with optionally about 2.2 GB for Accuracy
 
 ## Install
 
@@ -56,7 +56,7 @@ If macOS says the app can't be opened because the developer can't be verified, o
 2. Press `⌃⌥T` (Control-Option-T) and speak.
 3. Press `⌃⌥T` again. Your text is pasted where you were typing.
 
-The menu bar icon turns into a timer while you record. Your last 10 dictations are under **Transcript History** in the menu; click one to copy it. If your Mac goes to sleep while you're recording, MySteno still transcribes what you said and adds it to Transcript History.
+The menu bar icon turns into a timer while you record. Your last 10 dictations are under **Transcript History** in the menu; click one to copy it, or choose **Clear History** to remove them all. If your Mac goes to sleep while you're recording, MySteno still transcribes what you said and adds it to Transcript History.
 
 **Choose a microphone**
 
@@ -69,7 +69,7 @@ Choose **Choose Audio File…** from the menu. The first time, pick a folder for
 **Preferences**
 
 - **General:** launch at login, transcript output folder
-- **Transcription:** default mode, maximum recording length (30 minutes by default), install or remove models
+- **Transcription:** default mode, paragraph breaks after pauses (off by default), maximum recording length (30 minutes by default), install or remove models
 - **Shortcut:** change or reset the global shortcut
 
 ## Privacy
@@ -77,12 +77,13 @@ Choose **Choose Audio File…** from the menu. The first time, pick a folder for
 - Audio is captured and processed in memory. Dictation never writes audio to disk.
 - The network is used only to download model files from Hugging Face.
 - Transcripts go only to the app you're typing in or the folder you choose. Pasting briefly uses the clipboard, then puts back what you had copied.
-- Transcript History stays in memory and is cleared when MySteno quits. Notifications never contain transcript text.
+- Transcript History stays in memory and is cleared when MySteno quits or when you choose **Clear History**. Notifications never contain transcript text.
 
 ## Troubleshooting
 
 - **The shortcut does nothing or nothing is pasted.** Choose **Setup Guide…** from the MySteno menu and check that Accessibility is ticked. If MySteno is turned on in System Settings but still doesn't work (this can happen after replacing the app), run `tccutil reset Accessibility dev.guptadhruv.mysteno`, reopen MySteno, and allow it again.
 - **Nothing is transcribed, or the wrong microphone is used.** Check **System Settings → Privacy & Security → Microphone**, and the **Microphone** choice in the MySteno menu.
+- **AirPods record nothing while your iPhone plays audio through them.** AirPods can't send sound to your Mac while they're busy with another device. MySteno notices the silence within half a second, switches to your Mac's built-in microphone for that recording, and says so in the menu.
 - **Reporting a bug.** Include the logs from right after the problem:
 
   ```sh

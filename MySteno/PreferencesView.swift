@@ -119,6 +119,17 @@ private struct TranscriptionPreferencesView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Paragraphs") {
+                Toggle("Start a new paragraph after a pause", isOn: Binding(
+                    get: { model.insertsParagraphBreaks },
+                    set: { model.updateInsertsParagraphBreaks($0) }
+                ))
+
+                Text("When on, a pause of 2 seconds or longer starts a new paragraph. When off, each dictation or file is one paragraph.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Audio duration limit") {
                 LabeledContent("Maximum duration") {
                     HStack(spacing: 5) {
